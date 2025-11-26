@@ -55,7 +55,8 @@ def check_property_in_price_range(
     for page in range(pages_to_check):
         skip = page * results_per_page
 
-        search_params = {
+        # Build the query string exactly as the API expects it
+        search_params_dict = {
             "price": {
                 "__typename": "MinAndMaxFilter",
                 "min": min_price,
@@ -86,7 +87,9 @@ def check_property_in_price_range(
             "__typename": "SearchParams"
         }
 
-        query_str = "searchParamsJSON=" + json.dumps(search_params, separators=(',', ':'))
+        # Convert to JSON string and wrap in searchParamsJSON=
+        search_params_json = json.dumps(search_params_dict, separators=(',', ':'))
+        query_str = f'searchParamsJSON={search_params_json}'
 
         payload = {
             "operationName": "listingMapMarkerSearch",
@@ -107,7 +110,9 @@ def check_property_in_price_range(
             if response.status_code == 200:
                 try:
                     response_data = response.json()
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    if progress_callback:
+                        progress_callback(f"JSON decode error: {str(e)[:50]}")
                     time.sleep(2)
                     continue
 
@@ -117,8 +122,8 @@ def check_property_in_price_range(
                 elif 'data' in response_data and 'listingMapMarkerSearch' in response_data['data']:
                     listings = response_data['data']['listingMapMarkerSearch'].get('results', [])
 
-                if not listings:
-                    break
+                if listings is None or len(listings) == 0:
+                    break  # No more results
 
                 for listing in listings:
                     address_text = None
@@ -136,10 +141,28 @@ def check_property_in_price_range(
                         if target_normalized in address_normalized:
                             return True
 
+            else:
+                if progress_callback:
+                    progress_callback(f"API returned status {response.status_code}")
+                time.sleep(2)
+                continue
+
             if page < pages_to_check - 1:
                 time.sleep(0.3)
 
-        except Exception:
+        except requests.exceptions.Timeout:
+            if progress_callback:
+                progress_callback("Request timeout - retrying...")
+            time.sleep(2)
+            continue
+        except requests.exceptions.ConnectionError:
+            if progress_callback:
+                progress_callback("Connection error - retrying...")
+            time.sleep(3)
+            continue
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"Error: {str(e)[:50]}")
             time.sleep(1.5)
             continue
 
@@ -331,6 +354,9 @@ def main():
     # Sidebar for configuration
     st.sidebar.header("⚙️ Configuration")
     
+    # Debug mode
+    debug_mode = st.sidebar.checkbox("🐛 Debug Mode", value=False)
+    
     # Suburb selection
     suburb_name = st.sidebar.selectbox(
         "Select Suburb",
@@ -338,7 +364,7 @@ def main():
     )
     suburb_id = SUBURBS[suburb_name]["id"]
     
-    st.sidebar.success(f"Selected: {suburb_name}")
+    st.sidebar.success(f"Selected: {suburb_name} (ID: {suburb_id})")
 
     # Mode selection
     mode = st.sidebar.radio(
@@ -386,9 +412,13 @@ def main():
                 # Progress tracking
                 progress_bar = st.progress(0)
                 status_text = st.empty()
+                debug_container = st.expander("🔍 Debug Information") if debug_mode else None
                 
                 def update_progress(message):
                     status_text.info(message)
+                    if debug_mode and debug_container:
+                        with debug_container:
+                            st.text(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
                 
                 with st.spinner("Searching..."):
                     result = binary_search_price_range(
@@ -433,7 +463,11 @@ def main():
                         st.write(f"**Queries Made:** {result['queries_made']}")
                 else:
                     st.error("❌ Property not found")
-                    st.info(result.get('message', 'Property not in database'))
+                    st.warning(result.get('message', 'Property not in database'))
+                    
+                    if debug_mode:
+                        with st.expander("🐛 Debug Info"):
+                            st.json(result)
 
     else:  # Batch CSV Upload
         st.header("📊 Batch Processing (CSV Upload)")

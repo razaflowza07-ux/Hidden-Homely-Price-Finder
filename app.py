@@ -662,5 +662,5 @@ def run_batch_csv_mode(
     st.success("Batch complete. You can now download the results.")
 
 
-if name == "main":
+if __name__ == "__main__":
     main()

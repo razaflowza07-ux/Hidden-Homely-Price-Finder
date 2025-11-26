@@ -28,6 +28,7 @@ SUBURBS = {
     "Port Hacking": 6217567,
 }
 
+
 # ----------------------------
 # CORE LOGIC
 # ----------------------------
@@ -41,8 +42,10 @@ def check_property_in_price_range(
     bathrooms: int | None = None,
     carspaces: int | None = None,
 ) -> bool:
-    """Check if a property appears in search results for a given price range.
-    Returns True if found, False otherwise."""
+    """
+    Check if a property appears in search results for a given price range.
+    Returns True if found, False otherwise.
+    """
     url = "https://bff.homely.com.au/graphql"
     headers = {
         "accept": "*/*",
@@ -51,14 +54,12 @@ def check_property_in_price_range(
         "Origin": "https://www.homely.com.au",
         "priority": "u=1, i",
     }
-
     target_normalized = target_address.lower().strip()
     results_per_page = 25
     pages_to_check = (max_results + results_per_page - 1) // results_per_page
 
     for page in range(pages_to_check):
         skip = page * results_per_page
-
         search_params = {
             "price": {
                 "__typename": "MinAndMaxFilter",
@@ -86,9 +87,9 @@ def check_property_in_price_range(
             "sortBy": "soldHomesForYou",
             "__typename": "SearchParams",
         }
-
-        query_str = "searchParamsJSON=" + json.dumps(search_params, separators=(",", ":"))
-
+        query_str = "searchParamsJSON=" + json.dumps(
+            search_params, separators=(",", ":")
+        )
         payload = {
             "operationName": "listingMapMarkerSearch",
             "variables": {"query": query_str},
@@ -99,10 +100,8 @@ def check_property_in_price_range(
                 }
             },
         }
-
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=30)
-
             if response.status_code == 200:
                 try:
                     response_data = response.json()
@@ -112,7 +111,6 @@ def check_property_in_price_range(
 
                 listings = None
                 data = response_data.get("data", {})
-
                 if "listingSearch" in data:
                     listings = data["listingSearch"].get("listings", [])
                 elif "listingMapMarkerSearch" in data:
@@ -123,7 +121,6 @@ def check_property_in_price_range(
 
                 for listing in listings:
                     address_text = None
-
                     if "location" in listing and "address" in listing["location"]:
                         address_text = listing["location"]["address"]
                     elif "address" in listing:
@@ -139,14 +136,12 @@ def check_property_in_price_range(
 
                 if page < pages_to_check - 1:
                     time.sleep(0.2)
-
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
             time.sleep(1)
             continue
         except Exception:
             time.sleep(1)
             continue
-
     return False
 
 
@@ -161,8 +156,10 @@ def refine_to_10k_window(
     bathrooms: int | None = None,
     carspaces: int | None = None,
 ) -> dict:
-    """Refine a price bracket down to a ~10K window using binary splitting on raw prices.
-    Returns dict with min_price, max_price, bracket_width, queries_made."""
+    """
+    Refine a price bracket down to a ~10K window using binary splitting on raw prices.
+    Returns dict with min_price, max_price, bracket_width, queries_made.
+    """
     queries_made = 0
     lo = min_price
     hi = max_price
@@ -208,8 +205,10 @@ def binary_search_price_range(
     bathrooms: int | None = None,
     carspaces: int | None = None,
 ) -> dict:
-    """Use binary search over predefined price points to find a price bracket,
-    optionally refined to a 10K window."""
+    """
+    Use binary search over predefined price points to find a price bracket,
+    optionally refined to a 10K window.
+    """
     min_possible = price_points[0]
     max_possible = price_points[-1]
     queries_made = 0
@@ -225,7 +224,7 @@ def binary_search_price_range(
         bathrooms=bathrooms,
         carspaces=carspaces,
     )
-    queries_made +=  += 1
+    queries_made += 1
 
     if not exists:
         return {
@@ -235,7 +234,7 @@ def binary_search_price_range(
             "address": target_address,
         }
 
-    # Step 2: Find lower bound
+    # Step 2: Lower bound
     lo = 0
     hi = len(price_points) - 1
     lower_bound_index = 0
@@ -258,12 +257,10 @@ def binary_search_price_range(
             lower_bound_index = mid
             lo = mid + 1
         else:
-        else:
             hi = mid - 1
-
     lower_bound = price_points[lower_bound_index]
 
-    # Step 3: Find upper bound
+    # Step 3: Upper bound
     lo = 0
     hi = len(price_points) - 1
     upper_bound_index = len(price_points) - 1
@@ -287,7 +284,6 @@ def binary_search_price_range(
             hi = mid - 1
         else:
             lo = mid + 1
-
     upper_bound = price_points[upper_bound_index]
 
     final_min = lower_bound
@@ -337,10 +333,11 @@ def binary_search_price_range(
 # CSV HELPERS
 # ----------------------------
 def find_csv_anywhere(filename: str) -> str | None:
-    """Allow user to type only the CSV filename (if using manual path).
-    In Streamlit we mostly use uploaded files, but this is kept for flexibility."""
+    """
+    Allow user to type only the CSV filename (if using manual path).
+    In Streamlit we mostly use uploaded files, but this is kept for flexibility.
+    """
     filename = filename.strip()
-
     if os.path.isabs(filename):
         return filename if os.path.exists(filename) else None
 
@@ -355,31 +352,30 @@ def find_csv_anywhere(filename: str) -> str | None:
     for path in search_paths:
         if path.exists():
             return str(path)
-
     return None
 
 
 def parse_uploaded_csv(file) -> list[dict]:
-    """Parse an uploaded CSV (streamlit file-like object).
+    """
+    Parse an uploaded CSV (streamlit file-like object).
     STRICT header: address,bedrooms,bathrooms,carspaces
-    Returns list of dicts with keys: address (str), bedrooms (int|None), etc."""
+    Returns list of dicts with keys: address (str), bedrooms (int|None), bathrooms (int|None), carspaces (int|None)
+    """
     expected_headers = ["address", "bedrooms", "bathrooms", "carspaces"]
     rows: list[dict] = []
-
     try:
         file.seek(0)
         text = file.read().decode("utf-8")
         reader = csv.DictReader(text.splitlines())
-
-        if reader.fieldnames is None:
+        fieldnames = reader.fieldnames
+        if fieldnames is None:
             st.error("CSV appears to have no header row.")
             return []
-
-        if reader.fieldnames != expected_headers:
+        if fieldnames != expected_headers:
             st.error(
                 "CSV header must be exactly:\n"
                 "address,bedrooms,bathrooms,carspaces\n"
-                f"Found: {', '.join(reader.fieldnames)}"
+                f"Found: {', '.join(fieldnames)}"
             )
             return []
 
@@ -397,7 +393,8 @@ def parse_uploaded_csv(file) -> list[dict]:
                     return int(val)
                 except ValueError:
                     st.warning(
-                        f"Line {idx}: invalid integer for '{key}' -> '{val}', treated as 'any'."
+                        f"Line {idx}: invalid integer for '{key}' -> '{val}', "
+                        "treated as 'any'."
                     )
                     return None
 
@@ -413,11 +410,9 @@ def parse_uploaded_csv(file) -> list[dict]:
                     "carspaces": carspaces,
                 }
             )
-
     except Exception as e:
         st.error(f"Error reading CSV: {e}")
         return []
-
     return rows
 
 
@@ -430,7 +425,6 @@ def main():
         page_icon="💰",
         layout="wide",
     )
-
     st.title("💰 Homely Hidden Price Discovery Tool")
     st.write(
         "Discover hidden **sold prices** for properties with undisclosed prices, "
@@ -440,9 +434,7 @@ def main():
     # Sidebar: suburb + options
     st.sidebar.header("Search Settings")
     suburb_name = st.sidebar.selectbox(
-        "Suburb",
-        options=list(SUBURBS.keys()),
-        index=4  # default Cronulla
+        "Suburb", options=list(SUBURBS.keys()), index=4  # default Cronulla
     )
     suburb_id = SUBURBS[suburb_name]
     st.sidebar.write(f"**Selected Suburb ID:** `{suburb_id}`")
@@ -476,9 +468,10 @@ def main():
         run_batch_csv_mode(suburb_name, suburb_id, refine_to_10k, max_results)
 
 
-def run_single_property_mode(suburb_name: str, suburb_id: int, refine_to_10k: bool, max_results: int):
+def run_single_property_mode(
+    suburb_name: str, suburb_id: int, refine_to_10k: bool, max_results: int,
+):
     st.subheader("🏠 Single Property Search")
-
     col1, col2 = st.columns([2, 1])
 
     with col1:
@@ -489,9 +482,15 @@ def run_single_property_mode(suburb_name: str, suburb_id: int, refine_to_10k: bo
 
     with col2:
         st.markdown("**Optional filters**")
-        bedrooms = st.number_input("Bedrooms", min_value=0, step=1, value=0, help="0 means 'any'.")
-        bathrooms = st.number_input("Bathrooms", min_value=0, step=1, value=0, help="0 means 'any'.")
-        carspaces = st.number_input("Car spaces", min_value=0, step=1, value=0, help="0 means 'any'.")
+        bedrooms = st.number_input(
+            "Bedrooms", min_value=0, step=1, value=0, help="0 means 'any'."
+        )
+        bathrooms = st.number_input(
+            "Bathrooms", min_value=0, step=1, value=0, help="0 means 'any'."
+        )
+        carspaces = st.number_input(
+            "Car spaces", min_value=0, step=1, value=0, help="0 means 'any'."
+        )
 
     # Convert 0 → None (no filter)
     bedrooms_filter = bedrooms or None
@@ -542,9 +541,10 @@ def run_single_property_mode(suburb_name: str, suburb_id: int, refine_to_10k: bo
         )
 
 
-def run_batch_csv_mode(suburb_name: str, suburb_id: int, refine_to_10k: bool, max_results: int):
+def run_batch_csv_mode(
+    suburb_name: str, suburb_id: int, refine_to_10k: bool, max_results: int,
+):
     st.subheader("📂 Batch Search via CSV")
-
     st.markdown(
         """
         Upload a CSV file with **exactly** these columns:
@@ -559,9 +559,7 @@ def run_batch_csv_mode(suburb_name: str, suburb_id: int, refine_to_10k: bool, ma
     )
 
     uploaded_file = st.file_uploader(
-        "Upload CSV file",
-        type=["csv"],
-        accept_multiple_files=False
+        "Upload CSV file", type=["csv"], accept_multiple_files=False
     )
 
     if not uploaded_file:
@@ -639,15 +637,12 @@ def run_batch_csv_mode(suburb_name: str, suburb_id: int, refine_to_10k: bool, ma
                     "Queries Made": result.get("queries_made", ""),
                     "Error": "",
                 }
-
             results.append(result_row)
             progress_bar.progress(int(idx * 100 / total))
-
             # polite delay to avoid hammering the API
             time.sleep(0.3)
 
     status_placeholder.text("Batch processing complete.")
-
     df_results = pd.DataFrame(results)
 
     st.subheader("📊 Results Summary")
@@ -656,7 +651,7 @@ def run_batch_csv_mode(suburb_name: str, suburb_id: int, refine_to_10k: bool, ma
     # Download button
     csv_buffer = df_results.to_csv(index=False).encode("utf-8")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"price_discovery_{suburb_name.replace(' ', '')}_{timestamp}.csv"
+    filename = f"price_discovery_{suburb_name.replace(' ', '')}{timestamp}.csv"
 
     st.download_button(
         label="💾 Download results as CSV",
@@ -664,9 +659,8 @@ def run_batch_csv_mode(suburb_name: str, suburb_id: int, refine_to_10k: bool, ma
         file_name=filename,
         mime="text/csv",
     )
-
     st.success("Batch complete. You can now download the results.")
 
 
-if __name__ == "__main__":
+if name == "main":
     main()
